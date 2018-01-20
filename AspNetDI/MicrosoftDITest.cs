@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -10,50 +11,110 @@ namespace AspNetDI
     [TestClass]
     public partial class MicrosoftDITest
     {
+        static TextWriter _writer;
+        static ServiceProvider _serviceProvider;
+
+        [TestInitialize()]
+        public void TestInitialize()
+        {
+            _serviceProvider = BuildServiceProvider();
+            _writer = new StringWriter();
+        }
+
+        [TestCleanup()]
+        public void TestCleanup()
+        {
+        }
+
+        private void AssertHandlersCalled<TMessage>(TMessage message) where TMessage : INotification
+        {
+            var handlers = _expectations.Where(o => o.Value.Contains(typeof(TMessage))).Select(o => o.Key);
+            var result = _writer.ToString();
+            foreach (var handler in handlers)
+            {
+                if (!result.Contains(handler.ToString()))
+                {
+                    throw new InvalidOperationException($"Handler not called: {handler}");
+                }
+            }
+        }
+
+        private static Dictionary<Type, List<Type>> _expectations = new Dictionary<Type, List<Type>>
+        {
+            {
+                typeof(GenericHandler), new List<Type>{
+                    typeof(INotification),
+                    typeof(Pinged),
+                    typeof(Ponged),
+                    typeof(SpecialPinged)
+                }
+            },
+            {
+                typeof(PingedHandler), new List<Type>{
+                    typeof(Pinged),
+                    typeof(SpecialPinged),
+                }
+            },
+            {
+                typeof(PongedHandler), new List<Type>{
+                    typeof(Ponged),
+                }
+            },
+            {
+                typeof(SpecialPingedHandler), new List<Type>{
+                    typeof(SpecialPinged)
+                }
+            },
+            //{
+            //    typeof(ConstrainedPingedHandler<>), new List<Type>{
+            //        typeof(Pinged),
+            //        typeof(SpecialPinged),
+            //    }
+            //},
+        };
+
         [TestMethod]
         public void CanResolveINotificationHandlerOfINotification()
         {
-            ServiceProvider provider = BuildServiceProvider();
-            var handlers = GetRequiredServices<INotificationHandler<INotification>>(provider);
+            var handlers = GetRequiredServices<INotificationHandler<INotification>>(_serviceProvider);
             var message = new Pinged();
             Publish(handlers, message);
+            AssertHandlersCalled<INotification>(message);
         }
 
         [TestMethod]
         public void CanResolveINotificationHandlerOfPinged()
         {
-            ServiceProvider provider = BuildServiceProvider();
-            var handlers = GetRequiredServices<INotificationHandler<Pinged>>(provider);
             var message = new Pinged();
-            Publish(handlers, message);
+            PublishMessage(message);
+            AssertHandlersCalled(message);
         }
 
         [TestMethod]
         public void CanResolveINotificationHandlerOfPonged()
         {
-            ServiceProvider provider = BuildServiceProvider();
-            var handlers = GetRequiredServices<INotificationHandler<Ponged>>(provider);
             var message = new Ponged();
-            Publish(handlers, message);
+            PublishMessage(message);
+            AssertHandlersCalled(message);
         }
 
         [TestMethod]
         public void CanResolveINotificationHandlerOfSpecialPinged()
         {
-            ServiceProvider provider = BuildServiceProvider();
-            var handlers = GetRequiredServices<INotificationHandler<SpecialPinged>>(provider);
             var message = new SpecialPinged();
+            PublishMessage(message);
+            AssertHandlersCalled(message);
+        }
+
+        private static void PublishMessage<TMessage>(TMessage message) where TMessage : INotification
+        {
+            var handlers = GetRequiredServices<INotificationHandler<TMessage>>(_serviceProvider);
             Publish(handlers, message);
         }
 
-        private static void Publish<T>(IEnumerable<INotificationHandler<T>> handlers, T message) where T: INotification
+        private static void Publish<T>(IEnumerable<INotificationHandler<T>> handlers, T message) where T : INotification
         {
             handlers.ToList().ForEach(o => o.Handle(message));
-        }
-
-        private void TraceHandlers(IEnumerable<object> handlers)
-        {
-            Console.WriteLine(string.Join(" ", handlers));
         }
 
         private static ServiceProvider BuildServiceProvider()
@@ -62,6 +123,12 @@ namespace AspNetDI
             services.RegisterNotificationHandlers(Assembly.GetExecutingAssembly());
             var provider = services.BuildServiceProvider();
             return provider;
+        }
+
+        private static void HandleNotification(object handler, INotification notification)
+        {
+            _writer.WriteLine(handler.GetType().ToString());
+            Console.WriteLine(handler.GetType());
         }
 
         private static IEnumerable<T> GetRequiredServices<T>(IServiceProvider provider)
@@ -85,28 +152,28 @@ namespace AspNetDI
 
         public class GenericHandler : INotificationHandler<INotification>
         {
-            public void Handle(INotification notification) { Console.WriteLine(nameof(GenericHandler)); }
+            public void Handle(INotification notification) => HandleNotification(this, notification);
         }
 
         public class PingedHandler : INotificationHandler<Pinged>
         {
-            public void Handle(Pinged notification) { Console.WriteLine(nameof(PingedHandler)); }
+            public void Handle(Pinged notification) => HandleNotification(this, notification);
         }
 
         public class SpecialPingedHandler : INotificationHandler<SpecialPinged>
         {
-            public void Handle(SpecialPinged notification) { Console.WriteLine(nameof(SpecialPingedHandler)); }
+            public void Handle(SpecialPinged notification) => HandleNotification(this, notification);
         }
 
         public class PongedHandler : INotificationHandler<Ponged>
         {
-            public void Handle(Ponged notification) { Console.WriteLine(nameof(PongedHandler)); }
+            public void Handle(Ponged notification) => HandleNotification(this, notification);
         }
 
         public class ConstrainedPingedHandler<TNotification> : INotificationHandler<TNotification>
             where TNotification : Pinged
         {
-            public void Handle(TNotification notification) { Console.WriteLine(nameof(ConstrainedPingedHandler<TNotification>)); }
+            public void Handle(TNotification notification) => HandleNotification(this, notification);
         }
     }
 }

@@ -205,6 +205,8 @@ namespace AspNetDI
 
         private static bool HasNoConstraints(Type type)
         {
+            // MS IServiceCollection does not support constrained open generic types.
+            // See: https://github.com/aspnet/DependencyInjection/issues/471 Support constrained open generic types
             var ret = !(type.ContainsGenericParameters && type.GetGenericArguments().Any(p => p.GetGenericParameterConstraints().Any()));
             return ret;
         }

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Reflection;
 using Microsoft.Extensions.DependencyInjection;
@@ -11,14 +10,22 @@ namespace AspNetDI
     [TestClass]
     public partial class MicrosoftDITest
     {
-        static TextWriter _writer;
+        static List<Type> _handlersCalled;
         static ServiceProvider _serviceProvider;
 
         [TestInitialize()]
         public void TestInitialize()
         {
+            ServiceProvider BuildServiceProvider()
+            {
+                var services = new ServiceCollection();
+                services.RegisterNotificationHandlers(Assembly.GetExecutingAssembly());
+                var provider = services.BuildServiceProvider();
+                return provider;
+            }
+
             _serviceProvider = BuildServiceProvider();
-            _writer = new StringWriter();
+            _handlersCalled = new List<Type>();
         }
 
         [TestCleanup()]
@@ -26,114 +33,74 @@ namespace AspNetDI
         {
         }
 
-        private void AssertHandlersCalled<TMessage>(TMessage message) where TMessage : INotification
-        {
-            var handlers = _expectations.Where(o => o.Value.Contains(typeof(TMessage))).Select(o => o.Key);
-            var result = _writer.ToString();
-            foreach (var handler in handlers)
-            {
-                if (!result.Contains(handler.ToString()))
-                {
-                    throw new InvalidOperationException($"Handler not called: {handler}");
-                }
-            }
-        }
-
-        private static Dictionary<Type, List<Type>> _expectations = new Dictionary<Type, List<Type>>
-        {
-            {
-                typeof(GenericHandler), new List<Type>{
-                    typeof(INotification),
-                    typeof(Pinged),
-                    typeof(Ponged),
-                    typeof(SpecialPinged)
-                }
-            },
-            {
-                typeof(PingedHandler), new List<Type>{
-                    typeof(Pinged),
-                    typeof(SpecialPinged),
-                }
-            },
-            {
-                typeof(PongedHandler), new List<Type>{
-                    typeof(Ponged),
-                }
-            },
-            {
-                typeof(SpecialPingedHandler), new List<Type>{
-                    typeof(SpecialPinged)
-                }
-            },
-            //{
-            //    typeof(ConstrainedPingedHandler<>), new List<Type>{
-            //        typeof(Pinged),
-            //        typeof(SpecialPinged),
-            //    }
-            //},
-        };
-
         [TestMethod]
-        public void CanResolveINotificationHandlerOfINotification()
+        public void CanHandleINotification()
         {
-            var handlers = GetRequiredServices<INotificationHandler<INotification>>(_serviceProvider);
-            var message = new Pinged();
-            Publish(handlers, message);
-            AssertHandlersCalled<INotification>(message);
+            PublishAndAssert<INotification>(new Pinged(), new List<Type> {
+                typeof(GenericHandler)
+            });
         }
 
         [TestMethod]
-        public void CanResolveINotificationHandlerOfPinged()
+        public void CanHandlePinged()
         {
-            var message = new Pinged();
-            PublishMessage(message);
-            AssertHandlersCalled(message);
+            PublishAndAssert(new Pinged(), new List<Type> {
+                typeof(GenericHandler),
+                typeof(PingedHandler),
+                typeof(ConstrainedPingedHandler<>)
+            });
         }
 
         [TestMethod]
-        public void CanResolveINotificationHandlerOfPonged()
+        public void CanHandlePonged()
         {
-            var message = new Ponged();
-            PublishMessage(message);
-            AssertHandlersCalled(message);
+            PublishAndAssert(new Ponged(), new List<Type> {
+                typeof(GenericHandler),
+                typeof(PongedHandler)
+            });
         }
 
         [TestMethod]
-        public void CanResolveINotificationHandlerOfSpecialPinged()
+        public void CanHandleSpecialPinged()
         {
-            var message = new SpecialPinged();
-            PublishMessage(message);
-            AssertHandlersCalled(message);
+            PublishAndAssert(new SpecialPinged(), new List<Type> {
+                typeof(GenericHandler),
+                typeof(PingedHandler),
+                typeof(SpecialPingedHandler),
+                typeof(ConstrainedPingedHandler<>)
+            });
         }
 
-        private static void PublishMessage<TMessage>(TMessage message) where TMessage : INotification
+        [TestMethod]
+        public void CanHandlePingedWithoutConstrainedHandlers()
         {
-            var handlers = GetRequiredServices<INotificationHandler<TMessage>>(_serviceProvider);
-            Publish(handlers, message);
+            PublishAndAssert(new Pinged(), new List<Type> {
+                typeof(GenericHandler),
+                typeof(PingedHandler)
+            });
         }
 
-        private static void Publish<T>(IEnumerable<INotificationHandler<T>> handlers, T message) where T : INotification
+        [TestMethod]
+        public void CanHandleSpecialPingedWithoutConstrainedHandlers()
         {
+            PublishAndAssert(new SpecialPinged(), new List<Type> {
+                typeof(GenericHandler),
+                typeof(PingedHandler),
+                typeof(SpecialPingedHandler)
+            });
+        }
+
+        private static void PublishAndAssert<TMessage>(TMessage message, List<Type> expectedHandlers) where TMessage : INotification
+        {
+            var handlers = (IEnumerable<INotificationHandler<TMessage>>)_serviceProvider.GetRequiredService(typeof(IEnumerable<INotificationHandler<TMessage>>));
             handlers.ToList().ForEach(o => o.Handle(message));
-        }
-
-        private static ServiceProvider BuildServiceProvider()
-        {
-            var services = new ServiceCollection();
-            services.RegisterNotificationHandlers(Assembly.GetExecutingAssembly());
-            var provider = services.BuildServiceProvider();
-            return provider;
+            CollectionAssert.AreEqual(expectedHandlers, _handlersCalled);
         }
 
         private static void HandleNotification(object handler, INotification notification)
         {
-            _writer.WriteLine(handler.GetType().ToString());
+            _handlersCalled.Add(handler.GetType());
             Console.WriteLine(handler.GetType());
-        }
-
-        private static IEnumerable<T> GetRequiredServices<T>(IServiceProvider provider)
-        {
-            return (IEnumerable<T>)provider.GetRequiredService(typeof(IEnumerable<T>));
         }
 
         public interface INotification { }

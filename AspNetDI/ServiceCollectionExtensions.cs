@@ -8,6 +8,12 @@ using static AspNetDI.MicrosoftDITest;
 
 namespace AspNetDI
 {
+    /// <summary>
+    /// Notes:
+    /// a) Many methods have been used from here:
+    /// https://github.com/jbogard/MediatR.Extensions.Microsoft.DependencyInjection/blob/master/src/MediatR.Extensions.Microsoft.DependencyInjection/ServiceCollectionExtensions.cs
+    /// b) I have added some code to ignore constrained open generic types.
+    /// </summary>
     public static class ServiceCollectionExtensions
     {
         public static void RegisterNotificationHandlers(this IServiceCollection services, params Assembly[] assemblies)

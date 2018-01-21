@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
+using System.Threading.Tasks;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -20,6 +23,13 @@ namespace AspNetDI
             {
                 var services = new ServiceCollection();
                 services.RegisterNotificationHandlers(Assembly.GetExecutingAssembly());
+
+                services.AddScoped<SingleInstanceFactory>(p => t => p.GetService(t));
+                services.AddScoped<MultiInstanceFactory>(p => p.GetRequiredServices);
+                services.AddScoped<IMediator, Mediator>();
+
+                services.AddTransient<INotification, EmptyNotification>();
+
                 var provider = services.BuildServiceProvider();
                 return provider;
             }
@@ -36,7 +46,7 @@ namespace AspNetDI
         [TestMethod]
         public void CanHandleINotification()
         {
-            PublishAndAssert<INotification>(new Pinged(), new List<Type> {
+            PublishAndAssert(new EmptyNotification(), new List<Type> {
                 typeof(GenericHandler)
             });
         }
@@ -92,24 +102,19 @@ namespace AspNetDI
 
         private static void PublishAndAssert<TMessage>(TMessage message, List<Type> expectedHandlers) where TMessage : INotification
         {
-            var handlers = (IEnumerable<INotificationHandler<TMessage>>)_serviceProvider.GetRequiredService(typeof(IEnumerable<INotificationHandler<TMessage>>));
-            handlers.ToList().ForEach(o => o.Handle(message));
+            var mediator = _serviceProvider.GetRequiredService<IMediator>();
+            mediator.Publish(message);
             CollectionAssert.AreEqual(expectedHandlers, _handlersCalled);
         }
 
-        private static void HandleNotification(object handler, INotification notification)
+        private static Task HandleNotification(object handler, INotification notification)
         {
             _handlersCalled.Add(handler.GetType());
             Console.WriteLine(handler.GetType());
+            return Task.CompletedTask;
         }
 
-        public interface INotification { }
-
-        public interface INotificationHandler<in TNotification>
-            where TNotification : INotification
-        {
-            void Handle(TNotification notification);
-        }
+        public class EmptyNotification : INotification { }
 
         public class Pinged : INotification { }
 
@@ -119,28 +124,28 @@ namespace AspNetDI
 
         public class GenericHandler : INotificationHandler<INotification>
         {
-            public void Handle(INotification notification) => HandleNotification(this, notification);
+            public Task Handle(INotification notification, CancellationToken cancellationToken) => HandleNotification(this, notification);
         }
 
         public class PingedHandler : INotificationHandler<Pinged>
         {
-            public void Handle(Pinged notification) => HandleNotification(this, notification);
+            public Task Handle(Pinged notification, CancellationToken cancellationToken) => HandleNotification(this, notification);
         }
 
         public class SpecialPingedHandler : INotificationHandler<SpecialPinged>
         {
-            public void Handle(SpecialPinged notification) => HandleNotification(this, notification);
+            public Task Handle(SpecialPinged notification, CancellationToken cancellationToken) => HandleNotification(this, notification);
         }
 
         public class PongedHandler : INotificationHandler<Ponged>
         {
-            public void Handle(Ponged notification) => HandleNotification(this, notification);
+            public Task Handle(Ponged notification, CancellationToken cancellationToken) => HandleNotification(this, notification);
         }
 
         public class ConstrainedPingedHandler<TNotification> : INotificationHandler<TNotification>
             where TNotification : Pinged
         {
-            public void Handle(TNotification notification) => HandleNotification(this, notification);
+            public Task Handle(TNotification notification, CancellationToken cancellationToken) => HandleNotification(this, notification);
         }
     }
 }

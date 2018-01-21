@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using MediatR;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using static AspNetDI.MicrosoftDITest;
@@ -29,6 +30,16 @@ namespace AspNetDI
         public static void RegisterRequestProcessors(this IServiceCollection services, params Assembly[] assemblies)
         {
             RegisterRequestProcessorsInternal(services, assemblies);
+        }
+
+        public static IEnumerable<object> GetRequiredServices(this IServiceProvider provider, Type serviceType)
+        {
+            var handlers = (IEnumerable<INotificationHandler<EmptyNotification>>)provider.GetRequiredService(typeof(IEnumerable<INotificationHandler<EmptyNotification>>));
+
+            var handlers2 = (IEnumerable<INotificationHandler<INotification>>)provider.GetRequiredService(typeof(IEnumerable<INotificationHandler<INotification>>));
+
+            var services = (IEnumerable<object>)provider.GetRequiredService(typeof(IEnumerable<>).MakeGenericType(serviceType));
+            return services;
         }
 
         private static void RegisterNotificationHandlersInternal(IServiceCollection services, IEnumerable<Assembly> assembliesToScan)
@@ -92,6 +103,12 @@ namespace AspNetDI
 
                 foreach (var type in assembliesToScan.SelectMany(a => a.ExportedTypes))
                 {
+                    if (typeof(INotification).IsAssignableFrom(type))
+                    {
+                        interfaces.Fill(typeof(INotificationHandler<>).MakeGenericType(type));
+                        continue;
+                    }
+
                     IEnumerable<Type> interfaceTypes = type.FindInterfacesThatClose(openInterface).ToArray();
                     if (!interfaceTypes.Any()) continue;
 
